@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+from datetime import date
 from typing import Any
 
 import click
@@ -96,6 +97,23 @@ def main(verbose: int, json_logs: bool) -> None:
     default=None,
     help="Export signals to file (Parquet or CSV based on extension).",
 )
+@click.option(
+    "--since",
+    default=None,
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="Only process filings on or after this date (YYYY-MM-DD). Enables incremental mode.",
+)
+@click.option(
+    "--webhook-url",
+    default=None,
+    help="Send extracted signals to this webhook URL.",
+)
+@click.option(
+    "--webhook-batch",
+    is_flag=True,
+    default=False,
+    help="Send webhook signals as a single batch payload.",
+)
 def extract(
     tickers: tuple[str, ...],
     filing_types: tuple[str, ...],
@@ -106,6 +124,9 @@ def extract(
     cache_dir: str,
     db: str,
     output: str | None,
+    since: date | None,
+    webhook_url: str | None,
+    webhook_batch: bool,
 ) -> None:
     """Extract causal signals from SEC filings."""
     from sigint.pipeline import Pipeline
@@ -121,11 +142,13 @@ def extract(
         db_path=db,
     )
 
+    since_date = since.date() if since is not None else None
     collection = asyncio.run(
         pipeline.extract(
             tickers=list(tickers),
             filing_types=list(filing_types),
             lookback_years=lookback,
+            since=since_date,
             engines=list(engines),
         )
     )
@@ -141,6 +164,10 @@ def extract(
         else:
             path = collection.to_parquet(output)
         console.print(f"\n[green]Exported to {path}[/]")
+
+    if webhook_url:
+        sent = asyncio.run(collection.to_webhook(webhook_url, batch=webhook_batch))
+        console.print(f"\n[green]Webhook: {sent} payload(s) sent to {webhook_url}[/]")
 
 
 @main.command()

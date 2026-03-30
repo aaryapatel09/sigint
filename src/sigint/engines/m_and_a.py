@@ -60,6 +60,9 @@ For each indicator, return a JSON object:
 - excerpt: The exact excerpt from the filing (keep it short, 1-3
   sentences)
 - confidence: 0.0 to 1.0
+- related_tickers: list of ticker symbols of other companies mentioned
+  in the indicator (e.g. potential acquirers, advisors' clients).
+  Empty list if none.
 
 Return a JSON array.  If no M&A indicators are found, return [].
 Be selective -- only flag language that would make an experienced M&A
@@ -105,6 +108,7 @@ class MandAEngine(BaseEngine):
             return []
 
         indicators: list[MandAIndicator] = []
+        indicator_related: list[list[str]] = []
         ticker = sections[0].ticker
         filing_type = sections[0].filing_type
         filed_date = sections[0].filed_date
@@ -136,6 +140,9 @@ class MandAEngine(BaseEngine):
                         filed_date=filed_date,
                     )
                     indicators.append(ind)
+                    indicator_related.append(
+                        [str(t) for t in item.get("related_tickers", [])]
+                    )
                 except (ValueError, KeyError) as exc:
                     logger.warning(
                         "m_and_a_parse_error",
@@ -143,7 +150,7 @@ class MandAEngine(BaseEngine):
                         item=str(item)[:200],
                     )
 
-        signals = _indicators_to_signals(indicators)
+        signals = _indicators_to_signals(indicators, indicator_related)
         logger.info(
             "m_and_a_extracted",
             ticker=ticker,
@@ -155,6 +162,7 @@ class MandAEngine(BaseEngine):
 
 def _indicators_to_signals(
     indicators: list[MandAIndicator],
+    indicator_related: list[list[str]] | None = None,
 ) -> list[Signal]:
     """Convert M&A indicators into standardised Signal objects."""
     if not indicators:
@@ -202,6 +210,16 @@ def _indicators_to_signals(
     ticker = indicators[0].ticker
     filed_date = indicators[0].filed_date
 
+    # Aggregate related tickers from all indicators, deduplicated
+    all_related: list[str] = []
+    seen_related: set[str] = set()
+    for related in indicator_related or []:
+        for t in related:
+            t_norm = t.strip().upper()
+            if t_norm and t_norm != ticker and t_norm not in seen_related:
+                seen_related.add(t_norm)
+                all_related.append(t_norm)
+
     # One summary signal
     summary_parts = [
         f"{i.category}: {i.indicator} (conf={i.confidence:.2f})" for i in indicators[:5]
@@ -218,7 +236,7 @@ def _indicators_to_signals(
             confidence=aggregate_confidence,
             context=f"M&A indicators detected: {context}",
             source_filing="",
-            related_tickers=[],
+            related_tickers=all_related,
             metadata={
                 "indicator_count": len(indicators),
                 "categories": list({i.category for i in indicators}),

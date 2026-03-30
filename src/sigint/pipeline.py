@@ -11,6 +11,7 @@ import asyncio
 import os
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import date
 
 import structlog
 
@@ -75,6 +76,7 @@ class Pipeline:
         *,
         filing_types: Sequence[str] | None = None,
         lookback_years: int = 3,
+        since: date | None = None,
         engines: Sequence[str] | None = None,
         store: bool = True,
     ) -> SignalCollection:
@@ -84,6 +86,7 @@ class Pipeline:
             tickers: Company ticker symbols to analyse.
             filing_types: SEC filing types to fetch (default: 10-K, 10-Q).
             lookback_years: Years of filings to retrieve.
+            since: Skip filings filed before this date (incremental mode).
             engines: Extraction engines to run.  Defaults to all.
             store: Whether to persist signals to DuckDB.
 
@@ -118,6 +121,7 @@ class Pipeline:
                         engines=active_engines,
                         filing_types=filing_types,
                         lookback_years=lookback_years,
+                        since=since,
                     )
                     collection.extend(signals)
                 except Exception as exc:
@@ -126,6 +130,8 @@ class Pipeline:
                         ticker=ticker,
                         error=str(exc),
                     )
+
+        collection = collection.deduplicate()
 
         if store and self._db_path and len(collection) > 0:
             try:
@@ -151,6 +157,7 @@ class Pipeline:
         engines: list[BaseEngine],
         filing_types: Sequence[str] | None,
         lookback_years: int,
+        since: date | None = None,
     ) -> list[Signal]:
         """Fetch filings, parse, and run engines for a single ticker."""
         logger.info("processing_ticker", ticker=ticker)
@@ -160,6 +167,17 @@ class Pipeline:
             filing_types=filing_types,
             lookback_years=lookback_years,
         )
+
+        if since is not None:
+            before = len(filings)
+            filings = [f for f in filings if f.filed_date >= since]
+            logger.info(
+                "incremental_filter",
+                ticker=ticker,
+                since=since.isoformat(),
+                skipped=before - len(filings),
+                remaining=len(filings),
+            )
         if not filings:
             logger.warning("no_filings_found", ticker=ticker)
             return []

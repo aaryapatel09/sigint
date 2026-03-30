@@ -99,6 +99,30 @@ class SignalCollection:
 
     # -- Aggregation -----------------------------------------------------------
 
+    def deduplicate(self) -> SignalCollection:
+        """Return a new collection with duplicate signals removed.
+
+        Two signals are considered duplicates if they share the same
+        ticker, signal_type, direction, and source_filing.  The first
+        occurrence is kept.
+        """
+        seen: set[tuple[str, str, str, str]] = set()
+        unique: list[Signal] = []
+        for s in self._signals:
+            key = (s.ticker, s.signal_type.value, s.direction.value, s.source_filing)
+            if key not in seen:
+                seen.add(key)
+                unique.append(s)
+        return SignalCollection(unique)
+
+    def m_and_a_signals(self) -> SignalCollection:
+        """Return M&A signals."""
+        return self.by_type(SignalType.M_AND_A)
+
+    def tone_shifts(self) -> SignalCollection:
+        """Return tone-shift signals."""
+        return self.by_type(SignalType.TONE_SHIFT)
+
     def risk_changes(self, severity: str | None = None) -> SignalCollection:
         """Return risk-change signals, optionally filtered by severity.
 
@@ -188,6 +212,32 @@ class SignalCollection:
         from sigint.output.parquet import write_signals_csv
 
         return write_signals_csv(self._signals, path)
+
+    async def to_webhook(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        min_strength: float = 0.0,
+        batch: bool = False,
+    ) -> int:
+        """Send signals to a webhook endpoint.
+
+        Args:
+            url: Webhook URL to POST to.
+            headers: Optional extra headers (e.g. auth tokens).
+            min_strength: Only send signals at or above this strength.
+            batch: If True, send all signals in a single batch payload.
+
+        Returns:
+            Number of payloads sent.
+        """
+        from sigint.output.webhook import WebhookSender
+
+        sender = WebhookSender(url, headers=headers, min_strength=min_strength)
+        if batch:
+            return await sender.send_batch(self._signals)
+        return await sender.send(self._signals)
 
     def to_api(self, *, host: str = "127.0.0.1", port: int = 8080) -> None:
         """Launch a FastAPI server exposing these signals.

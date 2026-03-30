@@ -143,6 +143,15 @@ class Signal(BaseModel, frozen=True):
     def _clamp_unit(cls, v: float) -> float:
         return max(0.0, min(1.0, v))
 
+    @field_validator("source_filing")
+    @classmethod
+    def _validate_source_filing(cls, v: str) -> str:
+        if v and not (v.startswith("https://") or v.startswith("http://")):
+            raise ValueError(
+                f"source_filing must be a valid URL or empty string, got: {v!r}"
+            )
+        return v
+
     @field_validator("related_tickers")
     @classmethod
     def _normalize_tickers(cls, v: list[str]) -> list[str]:

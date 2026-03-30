@@ -100,6 +100,9 @@ select = [
 ]
 ignore = ["E501"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Query", "fastapi.Depends", "fastapi.Path"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["sigint"]
 

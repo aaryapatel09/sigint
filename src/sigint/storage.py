@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS signals (
 
 _CREATE_SEQUENCE = "CREATE SEQUENCE IF NOT EXISTS signal_seq START 1;"
 
+_CREATE_INDICES = [
+    "CREATE INDEX IF NOT EXISTS idx_signals_ticker ON signals(ticker);",
+    "CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);",
+    "CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(timestamp);",
+]
+
 _INSERT = """\
 INSERT INTO signals
     (timestamp, ticker, signal_type, direction, strength,
@@ -62,6 +68,8 @@ class SignalStore:
             self._conn = duckdb.connect(self._db_path)
             self._conn.execute(_CREATE_SEQUENCE)
             self._conn.execute(_CREATE_TABLE)
+            for idx_sql in _CREATE_INDICES:
+                self._conn.execute(idx_sql)
         except duckdb.Error as exc:
             raise StorageError(
                 f"Failed to initialise DuckDB at {self._db_path}"

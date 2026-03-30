@@ -12,6 +12,7 @@ Or standalone::
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -54,6 +55,11 @@ def _build_app(signals: Sequence[Signal]) -> Any:
         direction: str | None = Query(None),
         min_strength: float | None = Query(None, ge=0.0, le=1.0),
         min_confidence: float | None = Query(None, ge=0.0, le=1.0),
+        since: datetime | None = Query(None, description="ISO-8601 start timestamp"),
+        until: datetime | None = Query(None, description="ISO-8601 end timestamp"),
+        sort: str = Query("timestamp", description="Field to sort by"),
+        order: str = Query("desc", description="Sort order: asc or desc"),
+        offset: int = Query(0, ge=0, description="Pagination offset"),
         limit: int = Query(100, ge=1, le=10000),
     ) -> list[dict[str, Any]]:
         results = signal_dicts
@@ -67,7 +73,23 @@ def _build_app(signals: Sequence[Signal]) -> Any:
             results = [s for s in results if s["strength"] >= min_strength]
         if min_confidence is not None:
             results = [s for s in results if s["confidence"] >= min_confidence]
-        return results[:limit]
+        if since is not None:
+            since_str = since.isoformat()
+            results = [s for s in results if s["timestamp"] >= since_str]
+        if until is not None:
+            until_str = until.isoformat()
+            results = [s for s in results if s["timestamp"] <= until_str]
+        valid_sort_fields = {
+            "timestamp",
+            "strength",
+            "confidence",
+            "ticker",
+            "signal_type",
+        }
+        sort_field = sort if sort in valid_sort_fields else "timestamp"
+        reverse = order.lower() != "asc"
+        results = sorted(results, key=lambda s: s.get(sort_field, ""), reverse=reverse)
+        return results[offset : offset + limit]
 
     @app.get("/signals/summary")
     async def get_summary() -> dict[str, Any]:
@@ -89,11 +111,13 @@ def _build_app(signals: Sequence[Signal]) -> Any:
     async def get_signals_for_ticker(
         ticker: str,
         signal_type: str | None = Query(None),
+        limit: int = Query(100, ge=1, le=10000),
     ) -> list[dict[str, Any]]:
         results = [s for s in signal_dicts if s["ticker"] == ticker.upper()]
         if signal_type:
             results = [s for s in results if s["signal_type"] == signal_type]
-        return results
+        results = sorted(results, key=lambda s: s.get("timestamp", ""), reverse=True)
+        return results[:limit]
 
     return app
 

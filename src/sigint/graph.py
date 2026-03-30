@@ -131,6 +131,51 @@ class SupplyChainGraph:
             "exposure_score": round(score, 4),
         }
 
+    def all_transitive_suppliers(self, ticker: str) -> list[str]:
+        """Return every entity *ticker* transitively depends on (all hops).
+
+        Uses a full graph reachability search from *ticker* following
+        outgoing edges (depends_on / supplies_to / partners_with).
+
+        Args:
+            ticker: Starting company.
+
+        Returns:
+            Sorted list of all reachable entities.
+        """
+        if ticker not in self._graph:
+            return []
+        return sorted(nx.descendants(self._graph, ticker))
+
+    def all_transitive_customers(self, ticker: str) -> list[str]:
+        """Return every entity that transitively depends on *ticker* (all hops).
+
+        Traverses the graph in reverse to find all upstream dependents.
+
+        Args:
+            ticker: The supplier/entity to analyse.
+
+        Returns:
+            Sorted list of all entities that (transitively) depend on *ticker*.
+        """
+        if ticker not in self._graph:
+            return []
+        return sorted(nx.ancestors(self._graph, ticker))
+
+    def common_dependencies(self, ticker1: str, ticker2: str) -> list[str]:
+        """Return entities that both *ticker1* and *ticker2* depend on.
+
+        Args:
+            ticker1: First company.
+            ticker2: Second company.
+
+        Returns:
+            Sorted list of shared direct suppliers/partners.
+        """
+        deps1 = {t for _, t, _ in self._graph.out_edges(ticker1, keys=True)}
+        deps2 = {t for _, t, _ in self._graph.out_edges(ticker2, keys=True)}
+        return sorted(deps1 & deps2)
+
     def most_connected(self, top_n: int = 10) -> list[tuple[str, int]]:
         """Return the most connected nodes by total degree.
 
